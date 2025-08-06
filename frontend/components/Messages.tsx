@@ -26,15 +26,6 @@ function PureMessages({
   stop: UseChatHelpers['stop'];
   registerRef: (id: string, ref: HTMLDivElement | null) => void;
 }) {
-  // Show skeleton loading for empty threads that are still loading
-  if (messages.length === 0 && status === 'loading') {
-    return (
-      <section className="flex flex-col space-y-12">
-        <MessageSkeletonList count={2} />
-      </section>
-    );
-  }
-
   return (
     <section className="flex flex-col space-y-12">
       {messages.map((message, index) => (
