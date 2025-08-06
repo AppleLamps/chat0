@@ -63,7 +63,7 @@ function PureChatInput({
   const { id } = useParams();
 
   // Add attachment state and file input ref
-  const [attachment, setAttachment] = useState<{ name: string; data: string; type: 'image' | 'audio' | 'file'; extractedText?: string } | null>(null);
+  const [attachment, setAttachment] = useState<{ name: string; data: string; type: 'image' | 'audio' | 'pdf' | 'text' | 'code' | 'data' | 'file'; extractedText?: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isDisabled = useMemo(
@@ -109,14 +109,22 @@ function PureChatInput({
       const reader = new FileReader();
       reader.onloadend = async () => {
         const dataUrl = reader.result as string;
-        let fileType: 'image' | 'audio' | 'file' = 'file';
-        
+        let fileType: 'image' | 'audio' | 'pdf' | 'text' | 'code' | 'data' | 'file' = 'file';
+
         if (file.type.startsWith('image/')) {
           fileType = 'image';
         } else if (file.type.startsWith('audio/')) {
           fileType = 'audio';
+        } else if (file.type === 'application/pdf') {
+          fileType = 'pdf';
+        } else if (file.type.startsWith('text/')) {
+          fileType = 'text';
+        } else if (/\.(js|ts|jsx|tsx|py|java|c|cpp|cs|php|rb|go|rs|swift|kt)$/i.test(file.name)) {
+            fileType = 'code';
+        } else if (/\.(json|xml|yaml|yml|csv|sql)$/i.test(file.name)) {
+            fileType = 'data';
         }
-        
+
         // For PDFs, extract text content and store it
         if (file.type === 'application/pdf') {
           const pdfText = await extractPDFText(file);

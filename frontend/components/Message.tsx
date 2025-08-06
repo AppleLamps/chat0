@@ -99,7 +99,7 @@ function PureMessage({
                       // Show preview for ALL file types (hidden text files)
                       if ((part as any).hidden === true && appPart.type === 'text') {
                         // Extract filename from the hidden text content
-                        const match = 'text' in appPart ? appPart.text?.match(/\[File: ([^\]]+)\]/) : null;
+                        const match = 'text' in appPart ? appPart.text?.match(/\[(?:PDF File|File): ([^\]]+)\]/) : null;
                         const filename = match ? match[1] : 'Text File';
                         
                         return (
@@ -139,12 +139,12 @@ function PureMessage({
                                   {filename}
                                 </span>
                                 <span className="text-xs text-blue-600 dark:text-blue-400">
-                                  {filename.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? 'Image' : 
-                                   filename.match(/\.(txt|md)$/i) ? 'Text' :
-                                   filename.match(/\.(pdf)$/i) ? 'PDF' :
-                                   filename.match(/\.(mp3|wav|m4a|ogg)$/i) ? 'Audio' :
-                                   filename.match(/\.(js|ts|jsx|tsx|py|java|c|cpp|cs|php|rb|go|rs|swift|kt)$/i) ? 'Code' :
-                                   filename.match(/\.(json|xml|yaml|yml|csv|sql)$/i) ? 'Data' : 'File'}
+                                  {((part as any).type === 'image_url' || filename.match(/\.(jpg|jpeg|png|gif|webp)$/i)) ? 'Image' :
+                                  ((part as any).type === 'text' || filename.match(/\.(txt|md)$/i)) ? 'Text' :
+                                  ((part as any).type === 'pdf' || filename.match(/\.(pdf)$/i)) ? 'PDF' :
+                                  ((part as any).type === 'input_audio' || filename.match(/\.(mp3|wav|m4a|ogg)$/i)) ? 'Audio' :
+                                  ((part as any).type === 'code' || filename.match(/\.(js|ts|jsx|tsx|py|java|c|cpp|cs|php|rb|go|rs|swift|kt)$/i)) ? 'Code' :
+                                  ((part as any).type === 'data' || filename.match(/\.(json|xml|yaml|yml|csv|sql)$/i)) ? 'Data' : 'File'}
                                 </span>
                               </div>
                             </div>
@@ -243,12 +243,12 @@ function PureMessage({
                                     {filename}
                                   </span>
                                   <span className="text-xs text-blue-600 dark:text-blue-400">
-                                    {filename.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? 'Image' : 
-                                     filename.match(/\.(txt|md)$/i) ? 'Text' :
-                                     filename.match(/\.(pdf)$/i) ? 'PDF' :
-                                     filename.match(/\.(mp3|wav|m4a|ogg)$/i) ? 'Audio' :
-                                     filename.match(/\.(js|ts|jsx|tsx|py|java|c|cpp|cs|php|rb|go|rs|swift|kt)$/i) ? 'Code' :
-                                     filename.match(/\.(json|xml|yaml|yml|csv|sql)$/i) ? 'Data' : 'File'}
+                                    {filename.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? 'Image' :
+                                    filename.match(/\.(txt|md)$/i) ? 'Text' :
+                                    filename.match(/\.(pdf)$/i) ? 'PDF' :
+                                    filename.match(/\.(mp3|wav|m4a|ogg)$/i) ? 'Audio' :
+                                    filename.match(/\.(js|ts|jsx|tsx|py|java|c|cpp|cs|php|rb|go|rs|swift|kt)$/i) ? 'Code' :
+                                    filename.match(/\.(json|xml|yaml|yml|csv|sql)$/i) ? 'Data' : 'File'}
                                   </span>
                                 </div>
                               </div>
