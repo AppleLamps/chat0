@@ -1,5 +1,5 @@
-import { ChevronDown, Check, ArrowUpIcon } from 'lucide-react';
-import { memo, useCallback, useMemo } from 'react';
+import { ChevronDown, Check, ArrowUpIcon, Paperclip, Image } from 'lucide-react';
+import { memo, useCallback, useMemo, useState, useRef } from 'react';
 import { Textarea } from '@/frontend/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { Button } from '@/frontend/components/ui/button';
@@ -42,13 +42,6 @@ interface SendButtonProps {
   disabled: boolean;
 }
 
-const createUserMessage = (id: string, text: string): UIMessage => ({
-  id,
-  parts: [{ type: 'text', text }],
-  role: 'user',
-  content: text,
-  createdAt: new Date(),
-});
 
 function PureChatInput({
   threadId,
@@ -68,24 +61,85 @@ function PureChatInput({
   const navigate = useNavigate();
   const { id } = useParams();
 
+  // Add attachment state and file input ref
+  const [attachment, setAttachment] = useState<{ name: string; data: string; type: 'image' | 'audio' | 'file' } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const isDisabled = useMemo(
-    () => !input.trim() || status === 'streaming' || status === 'submitted',
-    [input, status]
+    () => (!input.trim() && !attachment) || status === 'streaming' || status === 'submitted',
+    [input, status, attachment]
   );
 
   const { complete } = useMessageSummary();
+
+  // Add file handling functions
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const dataUrl = reader.result as string;
+        const fileType = file.type.startsWith('image/') ? 'image' : (file.type.startsWith('audio/') ? 'audio' : 'file');
+        setAttachment({ name: file.name, data: dataUrl, type: fileType });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const triggerFileInput = (accept: string) => {
+    if (fileInputRef.current) {
+      fileInputRef.current.accept = accept;
+      fileInputRef.current.click();
+    }
+  };
 
   const handleSubmit = useCallback(async () => {
     const currentInput = textareaRef.current?.value || input;
 
     if (
-      !currentInput.trim() ||
+      (!currentInput.trim() && !attachment) ||
       status === 'streaming' ||
       status === 'submitted'
     )
       return;
 
     const messageId = uuidv4();
+    const content: any[] = [{ type: 'text', text: currentInput.trim() }];
+    
+    if (attachment) {
+      if (attachment.type === 'image') {
+        content.push({
+          type: 'image_url',
+          image_url: { url: attachment.data },
+        });
+      } else if (attachment.type === 'audio') {
+        // OpenRouter expects raw base64 for audio, not a data URL
+        const base64_audio = attachment.data.split(',')[1];
+        content.push({
+          type: 'input_audio',
+          input_audio: {
+            data: base64_audio,
+            format: attachment.name.split('.').pop() || 'wav', // Assumes format from extension
+          },
+        });
+      } else { // For PDFs and other files
+        content.push({
+          type: 'file',
+          file: {
+            filename: attachment.name,
+            file_data: attachment.data,
+          },
+        });
+      }
+    }
+
+    const userMessage: UIMessage = {
+      id: messageId,
+      parts: content.map(c => ({ type: c.type, ...c })), // Simplified mapping for parts
+      role: 'user',
+      content: currentInput.trim(), // Keep text content for display fallback
+      createdAt: new Date(),
+    };
 
     if (!id) {
       navigate(`/chat/${threadId}`);
@@ -97,11 +151,11 @@ function PureChatInput({
       complete(currentInput.trim(), { body: { messageId, threadId } });
     }
 
-    const userMessage = createUserMessage(messageId, currentInput.trim());
     await createMessage(threadId, userMessage);
 
     append(userMessage);
     setInput('');
+    setAttachment(null); // Clear attachment after sending
     adjustHeight(true);
   }, [
     input,
@@ -113,6 +167,7 @@ function PureChatInput({
     textareaRef,
     threadId,
     complete,
+    attachment,
   ]);
 
   if (!canChat) {
@@ -135,6 +190,19 @@ function PureChatInput({
     <div className="fixed bottom-0 w-full max-w-3xl">
       <div className="bg-secondary rounded-t-[20px] p-2 pb-0 w-full">
         <div className="relative">
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            className="hidden"
+            aria-label="File input for attachments"
+          />
+          {attachment && (
+            <div className="px-4 pt-2 text-sm text-muted-foreground">
+              Attached: {attachment.name}
+              <Button variant="ghost" size="sm" onClick={() => setAttachment(null)}>X</Button>
+            </div>
+          )}
           <div className="flex flex-col">
             <div className="bg-secondary overflow-y-auto max-h-[300px]">
               <Textarea
@@ -162,7 +230,15 @@ function PureChatInput({
 
             <div className="h-14 flex items-center px-2">
               <div className="flex items-center justify-between w-full">
-                <ChatModelDropdown />
+                <div className="flex items-center gap-1">
+                  <ChatModelDropdown />
+                  <Button variant="ghost" size="icon" aria-label="Attach file" onClick={() => triggerFileInput('.pdf,.txt,.md')}>
+                    <Paperclip size={18} />
+                  </Button>
+                  <Button variant="ghost" size="icon" aria-label="Attach image" onClick={() => triggerFileInput('image/png,image/jpeg,image/webp,image/gif')}>
+                    <Image size={18} />
+                  </Button>
+                </div>
 
                 {status === 'submitted' || status === 'streaming' ? (
                   <StopButton stop={stop} />

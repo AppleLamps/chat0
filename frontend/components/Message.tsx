@@ -2,6 +2,7 @@ import { memo, useState } from 'react';
 import MarkdownRenderer from '@/frontend/components/MemoizedMarkdown';
 import { cn } from '@/lib/utils';
 import { UIMessage } from 'ai';
+import { AppUIPart } from '@/frontend/types/ai';
 import equal from 'fast-deep-equal';
 import MessageControls from './MessageControls';
 import { UseChatHelpers } from '@ai-sdk/react';
@@ -35,69 +36,95 @@ function PureMessage({
         message.role === 'user' ? 'items-end' : 'items-start'
       )}
     >
-      {message.parts.map((part, index) => {
-        const { type } = part;
-        const key = `message-${message.id}-part-${index}`;
+      {message.role === 'user' ? (
+        <div
+          className="relative group rounded-xl max-w-[80%]"
+          ref={(el) => registerRef(message.id, el)}
+        >
+          <div className="flex flex-col gap-2 p-4 bg-secondary border border-secondary-foreground/2 rounded-xl">
+            {message.parts.map((part, index) => {
+              const key = `message-${message.id}-part-${index}`;
+              const appPart = part as AppUIPart;
 
-        if (type === 'reasoning') {
-          return (
-            <MessageReasoning
-              key={key}
-              reasoning={part.reasoning}
-              id={message.id}
+              if (appPart.type === 'text' && appPart.text) {
+                return mode === 'edit' ? (
+                  <MessageEditor
+                    key={key}
+                    threadId={threadId}
+                    message={message}
+                    content={appPart.text}
+                    setMessages={setMessages}
+                    reload={reload}
+                    setMode={setMode}
+                    stop={stop}
+                  />
+                ) : (
+                  <p key={key}>{appPart.text}</p>
+                );
+              }
+
+              if (appPart.type === 'image_url' && 'image_url' in appPart) {
+                return <img key={key} src={appPart.image_url.url} alt="User attachment" className="rounded-lg max-w-full h-auto" />;
+              }
+              
+              if (appPart.type === 'file' && 'file' in appPart) {
+                 return <div key={key} className="text-sm">Attached File: {appPart.file.filename}</div>;
+              }
+              
+              if (appPart.type === 'input_audio' && 'input_audio' in appPart) {
+                return <div key={key} className="text-sm">Attached Audio</div>;
+              }
+              
+              return null;
+            })}
+          </div>
+          {mode === 'view' && (
+            <div className="px-4 pb-2">
+              <MessageControls
+                threadId={threadId}
+                content={message.parts.find(p => p.type === 'text')?.text || ''}
+                message={message}
+                setMode={setMode}
+                setMessages={setMessages}
+                reload={reload}
+                stop={stop}
+              />
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="group flex flex-col gap-2 w-full">
+          {message.parts.map((part, index) => {
+            const key = `message-${message.id}-part-${index}`;
+            const appPart = part as AppUIPart;
+
+            if (appPart.type === 'reasoning' && 'reasoning' in appPart) {
+              return <MessageReasoning key={key} reasoning={appPart.reasoning} id={message.id} />;
+            }
+            
+            if (appPart.type === 'text' && appPart.text) {
+              return <MarkdownRenderer key={key} content={appPart.text} id={message.id} />;
+            }
+
+            // Assistant attachments (if any) would be rendered here
+            if (appPart.type === 'image_url' && 'image_url' in appPart) {
+                return <img key={key} src={appPart.image_url.url} alt="Assistant attachment" className="rounded-lg max-w-full h-auto" />;
+            }
+
+            return null;
+          })}
+          {!isStreaming && (
+            <MessageControls
+              threadId={threadId}
+              content={message.parts.find(p => p.type === 'text')?.text || ''}
+              message={message}
+              setMessages={setMessages}
+              reload={reload}
+              stop={stop}
             />
-          );
-        }
-
-        if (type === 'text') {
-          return message.role === 'user' ? (
-            <div
-              key={key}
-              className="relative group px-4 py-3 rounded-xl bg-secondary border border-secondary-foreground/2 max-w-[80%]"
-              ref={(el) => registerRef(message.id, el)}
-            >
-              {mode === 'edit' && (
-                <MessageEditor
-                  threadId={threadId}
-                  message={message}
-                  content={part.text}
-                  setMessages={setMessages}
-                  reload={reload}
-                  setMode={setMode}
-                  stop={stop}
-                />
-              )}
-              {mode === 'view' && <p>{part.text}</p>}
-
-              {mode === 'view' && (
-                <MessageControls
-                  threadId={threadId}
-                  content={part.text}
-                  message={message}
-                  setMode={setMode}
-                  setMessages={setMessages}
-                  reload={reload}
-                  stop={stop}
-                />
-              )}
-            </div>
-          ) : (
-            <div key={key} className="group flex flex-col gap-2 w-full">
-              <MarkdownRenderer content={part.text} id={message.id} />
-              {!isStreaming && (
-                <MessageControls
-                  threadId={threadId}
-                  content={part.text}
-                  message={message}
-                  setMessages={setMessages}
-                  reload={reload}
-                  stop={stop}
-                />
-              )}
-            </div>
-          );
-        }
-      })}
+          )}
+        </div>
+      )}
     </div>
   );
 }
