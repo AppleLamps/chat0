@@ -72,7 +72,7 @@ export default function Chat({ threadId, initialMessages }: ChatProps) {
     <div className="relative w-full">
       <ChatSidebarTrigger />
       <main
-        className={`flex flex-col w-full max-w-3xl pt-10 pb-44 mx-auto transition-all duration-300 ease-in-out`}
+        className={`flex flex-col w-full max-w-3xl pt-20 pb-44 mx-auto transition-all duration-300 ease-in-out`}
       >
         <Messages
           threadId={threadId}
