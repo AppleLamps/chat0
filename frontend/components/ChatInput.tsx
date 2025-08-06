@@ -80,18 +80,18 @@ function PureChatInput({
       if (typeof window !== 'undefined' && (window as any).pdfjsLib) {
         const pdfjsLib = (window as any).pdfjsLib;
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-        
+
         const arrayBuffer = await file.arrayBuffer();
         const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
         let fullText = '';
-        
+
         for (let i = 1; i <= pdf.numPages; i++) {
           const page = await pdf.getPage(i);
           const textContent = await page.getTextContent();
           const pageText = textContent.items.map((item: any) => item.str).join(' ');
           fullText += `\n\n--- Page ${i} ---\n${pageText}`;
         }
-        
+
         return fullText;
       } else {
         throw new Error('PDF.js not loaded');
@@ -102,42 +102,53 @@ function PureChatInput({
     }
   };
 
-  // Add file handling functions
+  // Helper function to determine file type based on MIME type and extension
+  const determineFileType = (file: File): 'image' | 'audio' | 'pdf' | 'text' | 'code' | 'data' | 'file' => {
+    if (file.type.startsWith('image/')) {
+      return 'image';
+    } else if (file.type.startsWith('audio/')) {
+      return 'audio';
+    } else if (file.type === 'application/pdf') {
+      return 'pdf';
+    } else if (file.type.startsWith('text/')) {
+      return 'text';
+    } else if (/\.(js|ts|jsx|tsx|py|java|c|cpp|cs|php|rb|go|rs|swift|kt)$/i.test(file.name)) {
+      return 'code';
+    } else if (/\.(json|xml|yaml|yml|csv|sql)$/i.test(file.name)) {
+      return 'data';
+    }
+    return 'file';
+  };
+
+  // Helper function to process attachment based on file type
+  const processAttachment = async (file: File, dataUrl: string, fileType: string) => {
+    if (file.type === 'application/pdf') {
+      const pdfText = await extractPDFText(file);
+      return {
+        name: file.name,
+        data: dataUrl,
+        type: fileType as 'pdf',
+        extractedText: pdfText
+      };
+    } else {
+      return {
+        name: file.name,
+        data: dataUrl,
+        type: fileType as 'image' | 'audio' | 'pdf' | 'text' | 'code' | 'data' | 'file'
+      };
+    }
+  };
+
+  // Refactored file handling function
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = async () => {
         const dataUrl = reader.result as string;
-        let fileType: 'image' | 'audio' | 'pdf' | 'text' | 'code' | 'data' | 'file' = 'file';
-
-        if (file.type.startsWith('image/')) {
-          fileType = 'image';
-        } else if (file.type.startsWith('audio/')) {
-          fileType = 'audio';
-        } else if (file.type === 'application/pdf') {
-          fileType = 'pdf';
-        } else if (file.type.startsWith('text/')) {
-          fileType = 'text';
-        } else if (/\.(js|ts|jsx|tsx|py|java|c|cpp|cs|php|rb|go|rs|swift|kt)$/i.test(file.name)) {
-            fileType = 'code';
-        } else if (/\.(json|xml|yaml|yml|csv|sql)$/i.test(file.name)) {
-            fileType = 'data';
-        }
-
-        // For PDFs, extract text content and store it
-        if (file.type === 'application/pdf') {
-          const pdfText = await extractPDFText(file);
-          // Store both the original data URL and extracted text
-          setAttachment({ 
-            name: file.name, 
-            data: dataUrl, 
-            type: fileType,
-            extractedText: pdfText
-          });
-        } else {
-          setAttachment({ name: file.name, data: dataUrl, type: fileType });
-        }
+        const fileType = determineFileType(file);
+        const attachmentData = await processAttachment(file, dataUrl, fileType);
+        setAttachment(attachmentData);
       };
       reader.readAsDataURL(file);
     }
@@ -150,6 +161,115 @@ function PureChatInput({
     }
   };
 
+  // Helper function to get text file extensions
+  const getTextFileExtensions = () => [
+    '.txt', '.md', '.json', '.xml', '.csv', '.log', '.yaml', '.yml',
+    '.ini', '.conf', '.cfg', '.properties', '.sql', '.sh', '.bat',
+    '.ps1', '.py', '.js', '.ts', '.jsx', '.tsx', '.html', '.css',
+    '.scss', '.sass', '.less', '.php', '.rb', '.go', '.rs', '.java',
+    '.c', '.cpp', '.h', '.hpp', '.cs', '.vb', '.swift', '.kt', '.dart',
+    '.r', '.m', '.pl', '.lua', '.scala', '.clj', '.hs', '.elm', '.ex',
+    '.exs', '.erl', '.f90', '.f95', '.jl', '.nim', '.zig', '.v', '.toml',
+    '.dockerfile', '.gitignore', '.gitattributes', '.env', '.editorconfig'
+  ];
+
+  // Helper function to check if file is text-based
+  const isTextBasedFile = (fileName: string) => {
+    const textFileExtensions = getTextFileExtensions();
+    return textFileExtensions.some(ext =>
+      fileName.toLowerCase().endsWith(ext.toLowerCase())
+    ) || !fileName.includes('.'); // Files without extension are often text
+  };
+
+  // Helper function to create attachment content
+  const createAttachmentContent = (attachment: any) => {
+    const content: any[] = [];
+
+    if (attachment.type === 'image') {
+      content.push({
+        type: 'image_url',
+        image_url: { url: attachment.data },
+      });
+    } else if (attachment.type === 'audio') {
+      // OpenRouter expects raw base64 for audio, not a data URL
+      const base64_audio = attachment.data.split(',')[1];
+      content.push({
+        type: 'input_audio',
+        input_audio: {
+          data: base64_audio,
+          format: attachment.name.split('.').pop() || 'wav',
+        },
+      });
+    } else {
+      // Handle PDF files with extracted text
+      if (attachment.name.toLowerCase().endsWith('.pdf') && attachment.extractedText) {
+        content.push({
+          type: 'text',
+          text: `\n\n[PDF File: ${attachment.name}]\n${attachment.extractedText}`,
+          hidden: true,
+        });
+      } else if (isTextBasedFile(attachment.name)) {
+        try {
+          // Extract text content from data URL for AI processing
+          const base64Content = attachment.data.split(',')[1];
+          const textContent = atob(base64Content);
+          content.push({
+            type: 'text',
+            text: `\n\n[File: ${attachment.name}]\n${textContent}`,
+            hidden: true,
+          });
+        } catch (error) {
+          console.error('Error reading text file:', error);
+        }
+      }
+    }
+
+    return content;
+  };
+
+  // Helper function to build API content from full content
+  const buildApiContent = (content: any[]) => {
+    return content
+      .filter(c => !(c as any).hidden)
+      .map((c) => {
+        if (c.type === 'text') {
+          return { type: 'text', text: (c as any).text };
+        }
+        if (c.type === 'image_url') {
+          return { type: 'image_url', image_url: (c as any).image_url };
+        }
+        if (c.type === 'input_audio') {
+          return { type: 'input_audio', input_audio: (c as any).input_audio };
+        }
+        return c;
+      });
+  };
+
+  // Helper function to create UI message
+  const createUIMessage = (messageId: string, content: any[], apiContent: any[]) => {
+    return {
+      id: messageId,
+      parts: content.map((c) => ({ ...c })),
+      role: 'user' as const,
+      content: apiContent as any,
+      createdAt: new Date(),
+    };
+  };
+
+  // Helper function to handle thread creation and completion
+  const handleThreadAndCompletion = async (currentInput: string, messageId: string) => {
+    if (!id) {
+      navigate(`/chat/${threadId}`);
+      await createThread(threadId);
+      complete(currentInput.trim(), {
+        body: { threadId, messageId, isTitle: true },
+      });
+    } else {
+      complete(currentInput.trim(), { body: { messageId, threadId } });
+    }
+  };
+
+  // Refactored handleSubmit function
   const handleSubmit = useCallback(async () => {
     const currentInput = textareaRef.current?.value || input;
 
@@ -162,104 +282,37 @@ function PureChatInput({
 
     const messageId = uuidv4();
     const content: any[] = [{ type: 'text', text: currentInput.trim() }];
-    
+
+    // Add attachment content if present
     if (attachment) {
-      if (attachment.type === 'image') {
-        content.push({
-          type: 'image_url',
-          image_url: { url: attachment.data },
-        });
-      } else if (attachment.type === 'audio') {
-        // OpenRouter expects raw base64 for audio, not a data URL
-        const base64_audio = attachment.data.split(',')[1];
-        content.push({
-          type: 'input_audio',
-          input_audio: {
-            data: base64_audio,
-            format: attachment.name.split('.').pop() || 'wav', // Assumes format from extension
-          },
-        });
-      } else { // For PDFs and other files
-        // Handle PDF files with extracted text
-        if (attachment.name.toLowerCase().endsWith('.pdf') && attachment.extractedText) {
-          content.push({
-            type: 'text',
-            text: `\n\n[PDF File: ${attachment.name}]\n${attachment.extractedText}`,
-            hidden: true, // This will be used by AI but not displayed
-          });
-        } else {
-          // Define common text-based file extensions
-          const textFileExtensions = [
-            '.txt', '.md', '.json', '.xml', '.csv', '.log', '.yaml', '.yml',
-            '.ini', '.conf', '.cfg', '.properties', '.sql', '.sh', '.bat',
-            '.ps1', '.py', '.js', '.ts', '.jsx', '.tsx', '.html', '.css',
-            '.scss', '.sass', '.less', '.php', '.rb', '.go', '.rs', '.java',
-            '.c', '.cpp', '.h', '.hpp', '.cs', '.vb', '.swift', '.kt', '.dart',
-            '.r', '.m', '.pl', '.lua', '.scala', '.clj', '.hs', '.elm', '.ex',
-            '.exs', '.erl', '.f90', '.f95', '.jl', '.nim', '.zig', '.v', '.toml',
-            '.dockerfile', '.gitignore', '.gitattributes', '.env', '.editorconfig'
-          ];
-          
-          // Check if the file is a text-based file
-          const isTextFile = textFileExtensions.some(ext => 
-            attachment.name.toLowerCase().endsWith(ext.toLowerCase())
-          ) || !attachment.name.includes('.'); // Files without extension are often text
-          
-          if (isTextFile) {
-            try {
-              // Extract text content from data URL for AI processing
-              const base64Content = attachment.data.split(',')[1];
-              const textContent = atob(base64Content);
-              // Add content for AI but mark it as hidden from display
-              content.push({
-                type: 'text',
-                text: `\n\n[File: ${attachment.name}]\n${textContent}`,
-                hidden: true, // This will be used by AI but not displayed
-              });
-            } catch (error) {
-              console.error('Error reading text file:', error);
-            }
-          }
-        }
-      }
+      content.push(...createAttachmentContent(attachment));
     }
 
-    // Create display content for user interface (shows attachment indicator)
-    const displayContent = content
-      .filter(c => c.type === 'text' && !c.hidden) // Only show non-hidden text content
-      .map(c => c.text)
-      .join('');
-    
-    // Create AI content (includes all content including hidden parts)
-    const aiContent = content
-      .filter(c => c.type === 'text') // Include all text content for AI
-      .map(c => c.text)
-      .join('');
-    
-    const userMessage: UIMessage = {
-      id: messageId,
-      parts: content.map(c => ({ type: c.type, ...c })), // Keep all parts including hidden ones for AI
-      role: 'user',
-      content: aiContent || displayContent, // AI gets full content, fallback to display content
-      createdAt: new Date(),
-    };
+    // Build API content
+    const apiContent = buildApiContent(content);
 
-    if (!id) {
-      navigate(`/chat/${threadId}`);
-      await createThread(threadId);
-      complete(currentInput.trim(), {
-        body: { threadId, messageId, isTitle: true },
-      });
-    } else {
-      complete(currentInput.trim(), { body: { messageId, threadId } });
+    // Debug logging for image content
+    const hasImage = apiContent.some(c => c.type === 'image_url');
+    if (hasImage) {
+      console.log('DEBUG: Message contains image, API content:', JSON.stringify(apiContent.map(c => ({
+        type: c.type,
+        hasImageUrl: c.type === 'image_url' ? !!c.image_url : undefined,
+        imageUrlLength: c.type === 'image_url' && c.image_url?.url ? c.image_url.url.length : undefined
+      })), null, 2));
     }
 
+    // Create user message
+    const userMessage = createUIMessage(messageId, content, apiContent);
+
+    // Handle thread creation and completion
+    await handleThreadAndCompletion(currentInput, messageId);
+
+    // Save message and update UI
     await createMessage(threadId, userMessage);
-
-    // Pass the full message with attachments to append
+    console.log('DEBUG outgoing', userMessage);
     append(userMessage);
     setInput('');
-    setAttachment(null); // Clear attachment after sending
+    setAttachment(null);
     adjustHeight(true);
   }, [
     input,
@@ -291,7 +344,7 @@ function PureChatInput({
   };
 
   return (
-    <div className="fixed bottom-0 w-full max-w-3xl">
+    <div className="fixed bottom-0 w-full max-w-3xl px-4 sm:px-0">
       <div className="bg-secondary rounded-t-[20px] p-2 pb-0 w-full">
         <div className="relative">
           <input
@@ -331,16 +384,16 @@ function PureChatInput({
                       {attachment.name}
                     </span>
                     <span className="text-xs text-blue-600 dark:text-blue-400">
-                      {attachment.name.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? 'Image' : 
-                       attachment.name.match(/\.(txt|md)$/i) ? 'Text' :
-                       attachment.name.match(/\.(pdf)$/i) ? 'PDF' :
-                       attachment.name.match(/\.(mp3|wav|m4a|ogg)$/i) ? 'Audio' : 'File'}
+                      {attachment.name.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? 'Image' :
+                        attachment.name.match(/\.(txt|md)$/i) ? 'Text' :
+                          attachment.name.match(/\.(pdf)$/i) ? 'PDF' :
+                            attachment.name.match(/\.(mp3|wav|m4a|ogg)$/i) ? 'Audio' : 'File'}
                     </span>
                   </div>
                 </div>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() => setAttachment(null)}
                   className="h-6 w-6 p-0 hover:bg-blue-200 dark:hover:bg-blue-800 rounded-full"
                   aria-label="Remove attachment"
