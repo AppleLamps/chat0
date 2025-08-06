@@ -31,6 +31,7 @@ interface ChatInputProps {
   setInput: UseChatHelpers['setInput'];
   append: UseChatHelpers['append'];
   stop: UseChatHelpers['stop'];
+  sendMessage?: (message: any, options?: any) => void;
 }
 
 interface StopButtonProps {
@@ -62,7 +63,7 @@ function PureChatInput({
   const { id } = useParams();
 
   // Add attachment state and file input ref
-  const [attachment, setAttachment] = useState<{ name: string; data: string; type: 'image' | 'audio' | 'file' } | null>(null);
+  const [attachment, setAttachment] = useState<{ name: string; data: string; type: 'image' | 'audio' | 'file'; extractedText?: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isDisabled = useMemo(
@@ -72,15 +73,63 @@ function PureChatInput({
 
   const { complete } = useMessageSummary();
 
+  // PDF text extraction function
+  const extractPDFText = async (file: File): Promise<string> => {
+    try {
+      // Check if PDF.js is available
+      if (typeof window !== 'undefined' && (window as any).pdfjsLib) {
+        const pdfjsLib = (window as any).pdfjsLib;
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        let fullText = '';
+        
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const textContent = await page.getTextContent();
+          const pageText = textContent.items.map((item: any) => item.str).join(' ');
+          fullText += `\n\n--- Page ${i} ---\n${pageText}`;
+        }
+        
+        return fullText;
+      } else {
+        throw new Error('PDF.js not loaded');
+      }
+    } catch (error) {
+      console.error('Error extracting PDF text:', error);
+      return `[Error: Could not extract text from PDF: ${error}]`;
+    }
+  };
+
   // Add file handling functions
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => {
+      reader.onloadend = async () => {
         const dataUrl = reader.result as string;
-        const fileType = file.type.startsWith('image/') ? 'image' : (file.type.startsWith('audio/') ? 'audio' : 'file');
-        setAttachment({ name: file.name, data: dataUrl, type: fileType });
+        let fileType: 'image' | 'audio' | 'file' = 'file';
+        
+        if (file.type.startsWith('image/')) {
+          fileType = 'image';
+        } else if (file.type.startsWith('audio/')) {
+          fileType = 'audio';
+        }
+        
+        // For PDFs, extract text content and store it
+        if (file.type === 'application/pdf') {
+          const pdfText = await extractPDFText(file);
+          // Store both the original data URL and extracted text
+          setAttachment({ 
+            name: file.name, 
+            data: dataUrl, 
+            type: fileType,
+            extractedText: pdfText
+          });
+        } else {
+          setAttachment({ name: file.name, data: dataUrl, type: fileType });
+        }
       };
       reader.readAsDataURL(file);
     }
@@ -123,21 +172,67 @@ function PureChatInput({
           },
         });
       } else { // For PDFs and other files
-        content.push({
-          type: 'file',
-          file: {
-            filename: attachment.name,
-            file_data: attachment.data,
-          },
-        });
+        // Handle PDF files with extracted text
+        if (attachment.name.toLowerCase().endsWith('.pdf') && attachment.extractedText) {
+          content.push({
+            type: 'text',
+            text: `\n\n[PDF File: ${attachment.name}]\n${attachment.extractedText}`,
+            hidden: true, // This will be used by AI but not displayed
+          });
+        } else {
+          // Define common text-based file extensions
+          const textFileExtensions = [
+            '.txt', '.md', '.json', '.xml', '.csv', '.log', '.yaml', '.yml',
+            '.ini', '.conf', '.cfg', '.properties', '.sql', '.sh', '.bat',
+            '.ps1', '.py', '.js', '.ts', '.jsx', '.tsx', '.html', '.css',
+            '.scss', '.sass', '.less', '.php', '.rb', '.go', '.rs', '.java',
+            '.c', '.cpp', '.h', '.hpp', '.cs', '.vb', '.swift', '.kt', '.dart',
+            '.r', '.m', '.pl', '.lua', '.scala', '.clj', '.hs', '.elm', '.ex',
+            '.exs', '.erl', '.f90', '.f95', '.jl', '.nim', '.zig', '.v', '.toml',
+            '.dockerfile', '.gitignore', '.gitattributes', '.env', '.editorconfig'
+          ];
+          
+          // Check if the file is a text-based file
+          const isTextFile = textFileExtensions.some(ext => 
+            attachment.name.toLowerCase().endsWith(ext.toLowerCase())
+          ) || !attachment.name.includes('.'); // Files without extension are often text
+          
+          if (isTextFile) {
+            try {
+              // Extract text content from data URL for AI processing
+              const base64Content = attachment.data.split(',')[1];
+              const textContent = atob(base64Content);
+              // Add content for AI but mark it as hidden from display
+              content.push({
+                type: 'text',
+                text: `\n\n[File: ${attachment.name}]\n${textContent}`,
+                hidden: true, // This will be used by AI but not displayed
+              });
+            } catch (error) {
+              console.error('Error reading text file:', error);
+            }
+          }
+        }
       }
     }
 
+    // Create display content for user interface (shows attachment indicator)
+    const displayContent = content
+      .filter(c => c.type === 'text' && !c.hidden) // Only show non-hidden text content
+      .map(c => c.text)
+      .join('');
+    
+    // Create AI content (includes all content including hidden parts)
+    const aiContent = content
+      .filter(c => c.type === 'text') // Include all text content for AI
+      .map(c => c.text)
+      .join('');
+    
     const userMessage: UIMessage = {
       id: messageId,
-      parts: content.map(c => ({ type: c.type, ...c })), // Simplified mapping for parts
+      parts: content.map(c => ({ type: c.type, ...c })), // Keep all parts including hidden ones for AI
       role: 'user',
-      content: currentInput.trim(), // Keep text content for display fallback
+      content: aiContent || displayContent, // AI gets full content, fallback to display content
       createdAt: new Date(),
     };
 
@@ -153,6 +248,7 @@ function PureChatInput({
 
     await createMessage(threadId, userMessage);
 
+    // Pass the full message with attachments to append
     append(userMessage);
     setInput('');
     setAttachment(null); // Clear attachment after sending
@@ -198,9 +294,52 @@ function PureChatInput({
             aria-label="File input for attachments"
           />
           {attachment && (
-            <div className="px-4 pt-2 text-sm text-muted-foreground">
-              Attached: {attachment.name}
-              <Button variant="ghost" size="sm" onClick={() => setAttachment(null)}>X</Button>
+            <div className="px-4 pt-2 pb-2">
+              <div className="inline-flex items-center gap-2 px-3 py-2 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <div className="flex items-center gap-2">
+                  {attachment.name.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                    <div className="w-6 h-6 bg-green-100 dark:bg-green-900/30 rounded flex items-center justify-center">
+                      <span className="text-xs">🖼️</span>
+                    </div>
+                  ) : attachment.name.match(/\.(txt|md)$/i) ? (
+                    <div className="w-6 h-6 bg-blue-100 dark:bg-blue-900/30 rounded flex items-center justify-center">
+                      <span className="text-xs">📄</span>
+                    </div>
+                  ) : attachment.name.match(/\.(pdf)$/i) ? (
+                    <div className="w-6 h-6 bg-red-100 dark:bg-red-900/30 rounded flex items-center justify-center">
+                      <span className="text-xs">📕</span>
+                    </div>
+                  ) : attachment.name.match(/\.(mp3|wav|m4a|ogg)$/i) ? (
+                    <div className="w-6 h-6 bg-purple-100 dark:bg-purple-900/30 rounded flex items-center justify-center">
+                      <span className="text-xs">🎵</span>
+                    </div>
+                  ) : (
+                    <div className="w-6 h-6 bg-gray-100 dark:bg-gray-900/30 rounded flex items-center justify-center">
+                      <span className="text-xs">📎</span>
+                    </div>
+                  )}
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium text-blue-800 dark:text-blue-200 truncate max-w-[200px]">
+                      {attachment.name}
+                    </span>
+                    <span className="text-xs text-blue-600 dark:text-blue-400">
+                      {attachment.name.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? 'Image' : 
+                       attachment.name.match(/\.(txt|md)$/i) ? 'Text' :
+                       attachment.name.match(/\.(pdf)$/i) ? 'PDF' :
+                       attachment.name.match(/\.(mp3|wav|m4a|ogg)$/i) ? 'Audio' : 'File'}
+                    </span>
+                  </div>
+                </div>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={() => setAttachment(null)}
+                  className="h-6 w-6 p-0 hover:bg-blue-200 dark:hover:bg-blue-800 rounded-full"
+                  aria-label="Remove attachment"
+                >
+                  <span className="text-xs">✕</span>
+                </Button>
+              </div>
             </div>
           )}
           <div className="flex flex-col">
@@ -232,7 +371,7 @@ function PureChatInput({
               <div className="flex items-center justify-between w-full">
                 <div className="flex items-center gap-1">
                   <ChatModelDropdown />
-                  <Button variant="ghost" size="icon" aria-label="Attach file" onClick={() => triggerFileInput('.pdf,.txt,.md')}>
+                  <Button variant="ghost" size="icon" aria-label="Attach file" onClick={() => triggerFileInput('.pdf,.txt,.md,.json,.xml,.csv,.log,.yaml,.yml,.ini,.conf,.cfg,.properties,.sql,.sh,.bat,.ps1,.py,.js,.ts,.jsx,.tsx,.html,.css,.scss,.sass,.less,.php,.rb,.go,.rs,.java,.c,.cpp,.h,.hpp,.cs,.vb,.swift,.kt,.dart,.r,.m,.pl,.lua,.scala,.clj,.hs,.elm,.ex,.exs,.erl,.f90,.f95,.jl,.nim,.zig,.v,.toml,.dockerfile,.gitignore,.gitattributes,.env,.editorconfig')}>
                     <Paperclip size={18} />
                   </Button>
                   <Button variant="ghost" size="icon" aria-label="Attach image" onClick={() => triggerFileInput('image/png,image/jpeg,image/webp,image/gif')}>
