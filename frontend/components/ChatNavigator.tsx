@@ -3,6 +3,7 @@ import { getMessageSummaries } from '@/frontend/dexie/queries';
 import { memo } from 'react';
 import { X } from 'lucide-react';
 import { Button } from './ui/button';
+import { Skeleton } from './ui/skeleton';
 
 interface MessageNavigatorProps {
   threadId: string;
@@ -52,17 +53,30 @@ function PureChatNavigator({
 
           <div className="flex-1 overflow-hidden p-2">
             <ul className="flex flex-col gap-2 p-4 prose prose-sm dark:prose-invert list-disc pl-5 h-full overflow-y-auto scrollbar-thin scrollbar-track-transparent scrollbar-thumb-muted-foreground/30 scrollbar-thumb-rounded-full">
-              {messageSummaries?.map((summary) => (
-                <li
-                  key={summary.id}
-                  onClick={() => {
-                    scrollToMessage(summary.messageId);
-                  }}
-                  className="cursor-pointer hover:text-foreground transition-colors"
-                >
-                  {summary.content.slice(0, 100)}
-                </li>
-              ))}
+              {messageSummaries === undefined ? (
+                // Show skeleton loading while message summaries are being fetched
+                Array.from({ length: 5 }).map((_, index) => (
+                  <li key={index} className="flex items-center gap-2">
+                    <div className="w-1 h-1 bg-muted-foreground rounded-full flex-shrink-0" />
+                    <div className="space-y-1 flex-1">
+                      <Skeleton className="h-3 w-full" />
+                      <Skeleton className="h-3 w-3/4" />
+                    </div>
+                  </li>
+                ))
+              ) : (
+                messageSummaries.map((summary) => (
+                  <li
+                    key={summary.id}
+                    onClick={() => {
+                      scrollToMessage(summary.messageId);
+                    }}
+                    className="cursor-pointer hover:text-foreground transition-colors"
+                  >
+                    {summary.content.slice(0, 100)}
+                  </li>
+                ))
+              )}
             </ul>
           </div>
         </div>

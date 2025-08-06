@@ -6,6 +6,7 @@ import {
   SidebarGroupContent,
   SidebarMenu,
   SidebarMenuItem,
+  SidebarMenuSkeleton,
   SidebarFooter,
   SidebarTrigger,
 } from '@/frontend/components/ui/sidebar';
@@ -41,39 +42,48 @@ export default function ChatSidebar() {
           <SidebarGroup>
             <SidebarGroupContent>
               <SidebarMenu>
-                {threads?.map((thread) => {
-                  return (
-                    <SidebarMenuItem key={thread.id}>
-                      <div
-                        className={cn(
-                          'cursor-pointer group/thread h-9 flex items-center px-2 py-1 rounded-[8px] overflow-hidden w-full hover:bg-secondary',
-                          id === thread.id && 'bg-secondary'
-                        )}
-                        onClick={() => {
-                          if (id === thread.id) {
-                            return;
-                          }
-                          navigate(`/chat/${thread.id}`);
-                        }}
-                      >
-                        <span className="truncate block">{thread.title}</span>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="hidden group-hover/thread:flex ml-auto h-7 w-7"
-                          onClick={async (event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                            await deleteThread(thread.id);
-                            navigate(`/chat`);
+                {threads === undefined ? (
+                  // Show skeleton loading while threads are being fetched
+                  Array.from({ length: 6 }).map((_, index) => (
+                    <SidebarMenuItem key={index}>
+                      <SidebarMenuSkeleton />
+                    </SidebarMenuItem>
+                  ))
+                ) : (
+                  threads.map((thread) => {
+                    return (
+                      <SidebarMenuItem key={thread.id}>
+                        <div
+                          className={cn(
+                            'cursor-pointer group/thread h-9 flex items-center px-2 py-1 rounded-[8px] overflow-hidden w-full hover:bg-secondary',
+                            id === thread.id && 'bg-secondary'
+                          )}
+                          onClick={() => {
+                            if (id === thread.id) {
+                              return;
+                            }
+                            navigate(`/chat/${thread.id}`);
                           }}
                         >
-                          <X size={16} />
-                        </Button>
-                      </div>
-                    </SidebarMenuItem>
-                  );
-                })}
+                          <span className="truncate block">{thread.title}</span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="hidden group-hover/thread:flex ml-auto h-7 w-7"
+                            onClick={async (event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              await deleteThread(thread.id);
+                              navigate(`/chat`);
+                            }}
+                          >
+                            <X size={16} />
+                          </Button>
+                        </div>
+                      </SidebarMenuItem>
+                    );
+                  })
+                )}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>

@@ -281,13 +281,22 @@ function PureMessage({
         </div>
       ) : (
         <div className="group flex flex-col gap-2 w-full">
+          {/* Render reasoning parts first */}
           {message.parts.map((part, index) => {
-            const key = `message-${message.id}-part-${index}`;
+            const key = `message-${message.id}-reasoning-${index}`;
             const appPart = part as AppUIPart;
 
             if (appPart.type === 'reasoning' && 'reasoning' in appPart) {
               return <MessageReasoning key={key} reasoning={appPart.reasoning} id={message.id} />;
             }
+            
+            return null;
+          })}
+          
+          {/* Render text and other content parts */}
+          {message.parts.map((part, index) => {
+            const key = `message-${message.id}-content-${index}`;
+            const appPart = part as AppUIPart;
             
             if (appPart.type === 'text' && 'text' in appPart && appPart.text) {
               return <MarkdownRenderer key={key} content={appPart.text} id={message.id} />;
